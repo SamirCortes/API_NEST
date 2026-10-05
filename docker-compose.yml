@@ -16,7 +16,66 @@ services:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-proot']
       interval: 5s
       timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: api_nest_rabbitmq
+    restart: unless-stopped
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: nest
+      RABBITMQ_DEFAULT_PASS: nest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
       retries: 10
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: api_nest:local
+    container_name: api_nest_app
+    restart: unless-stopped
+    ports:
+      - '3020:3000'
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: nest
+      DB_PASSWORD: nest
+      DB_DATABASE: api_nest
+      RABBITMQ_URL: amqp://nest:nest@rabbitmq:5672
+      RABBITMQ_QUEUE: messages_queue
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer:
+    image: api_nest:local
+    container_name: api_nest_consumer
+    restart: unless-stopped
+    environment:
+      RABBITMQ_URL: amqp://nest:nest@rabbitmq:5672
+      RABBITMQ_QUEUE: messages_queue
+    command: ['node', 'dist/consumer.js']
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      api:
+        condition: service_started
 
 volumes:
   mysql_data:
+  rabbitmq_data:

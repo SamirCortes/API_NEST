@@ -46,3 +46,6 @@ lerna-debug.log*
 /tmp
 temp
 tmp
+
+# delivery package
+API_Nest_Entrega_Laboratorio.zip

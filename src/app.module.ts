@@ -3,6 +3,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule } from './clients/clients.module';
 import { Client } from './clients/entities/client.entity';
+import { MessagesModule } from './messages/messages.module';
+import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
 
 @Module({
   imports: [
@@ -28,7 +30,9 @@ import { Client } from './clients/entities/client.entity';
         },
       }),
     }),
+    RabbitmqModule,
     ClientsModule,
+    MessagesModule,
   ],
 })
 export class AppModule {}

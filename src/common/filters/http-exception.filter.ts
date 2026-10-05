@@ -5,7 +5,7 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { ApiResponseDto } from '../dto/api-response.dto';
 
 @Catch()
@@ -13,6 +13,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
+    if (this.isMessagesRoute(request) && this.isInvalidJson(exception)) {
+      response
+        .status(HttpStatus.BAD_REQUEST)
+        .json(ApiResponseDto.fail('Formato de mensaje inválido'));
+      return;
+    }
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Error interno del servidor';
@@ -39,5 +47,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     response.status(statusCode).json(ApiResponseDto.fail(message));
+  }
+
+  private isMessagesRoute(request: Request) {
+    const path = (request.originalUrl ?? request.url ?? '')
+      .split('?')[0]
+      .replace(/\/+$/, '');
+    return path === '/messages';
+  }
+
+  private isInvalidJson(exception: unknown) {
+    if (!exception || typeof exception !== 'object') {
+      return false;
+    }
+
+    const error = exception as { name?: string; type?: string };
+    return error.type === 'entity.parse.failed' || error.name === 'SyntaxError';
   }
 }
