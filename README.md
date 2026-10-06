@@ -103,6 +103,40 @@ curl -i -X POST http://localhost:3020/messages \
 
 La respuesta es `status: false` y el contador de la cola no aumenta.
 
+## Pagos
+
+`POST /pagos` guarda el pago en MySQL con estado `REGISTRADO`, publica solo su `id` en `messages_queue` y responde enseguida. No espera a que el consumidor termine.
+
+```json
+{"referencia": "PAG-0001", "valor": 125000, "medio": "transferencia"}
+```
+
+```json
+{"status": true, "message": "Pago registrado", "data": {"id": 1, "estado": "REGISTRADO"}}
+```
+
+Si faltan datos, el valor no es un número mayor que cero, o el cuerpo no es JSON:
+
+```json
+{"status": false, "message": "Datos del pago inválidos"}
+```
+
+`GET /pagos/:id` consulta el mismo pago. Justo después del registro el estado es `REGISTRADO`. Unos segundos después pasa a `PROCESADO`.
+
+El consumidor espera `PROCESS_DELAY_MS` (4 segundos por defecto, entre 3 y 5), escribe un comprobante en `procesamientos` y solo entonces confirma el mensaje. En el log quedan el id, la hora en que lo tomó y la hora en que terminó.
+
+```bash
+docker compose logs -f consumer
+```
+
+### Casos
+
+1. Consumidor detenido. `docker compose stop consumer`, registra cinco pagos y revisa en MySQL que siguen en `REGISTRADO`. La API responde igual de rápido. Luego `docker compose start consumer` y los cinco pasan a `PROCESADO`.
+2. Acción más lenta. En `docker-compose.yml` cambia `PROCESS_DELAY_MS` a `15000` y ejecuta `docker compose up -d consumer`. Vuelve a medir el tiempo de `POST /pagos`: no debe crecer, porque la API no espera esa pausa.
+3. Fallo al procesar. Registra un pago con referencia `PAG-FALLA`. El consumidor lo toma, falla antes de actualizar la base y devuelve el mensaje a la cola. El pago sigue en `REGISTRADO`. Para la captura, detén el consumidor y mira la cola y la tabla. Ese mensaje se reintenta mientras el consumidor siga encendido; al terminar la evidencia, bórralo desde la consola de RabbitMQ o deja el consumidor detenido.
+
+La colección está en `postman/Pagos_RabbitMQ.postman_collection.json`.
+
 ## Colección Postman
 
 Archivo del taller: `postman/Mensajeria_RabbitMQ.postman_collection.json`
@@ -242,6 +276,8 @@ Todas las respuestas usan `Content-Type: application/json` y `status` como **boo
 
 | Método   | Ruta            | Descripción              |
 |----------|-----------------|--------------------------|
+| `POST`   | `/pagos`        | Registrar pago               |
+| `GET`    | `/pagos/:id`    | Consultar pago por id        |
 | `POST`   | `/messages`     | Publicar mensaje en la cola |
 | `POST`   | `/clients`      | Crear cliente            |
 | `GET`    | `/clients`      | Listar clientes          |
@@ -292,11 +328,12 @@ npm run start:prod         # API en producción (después de build)
 
 | Evento | Cuándo |
 |--------|--------|
+| `payment.registered` | POST `/pagos` |
 | `message.published` | POST `/messages` |
 | `client.created` | POST `/clients` |
 | `client.updated` | PUT `/clients/:id` |
 | `client.deleted` | DELETE `/clients/:id` |
 
-Cola: `messages_queue` (durable). Los cuatro eventos los lee solo el contenedor consumidor.
+Cola: `messages_queue` (durable). Esos eventos los lee solo el contenedor consumidor. `payment.registered` además actualiza el pago en MySQL.
 
 **UI de administración:** http://localhost:15672 — usuario `nest` / contraseña `nest`

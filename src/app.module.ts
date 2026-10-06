@@ -4,6 +4,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule } from './clients/clients.module';
 import { Client } from './clients/entities/client.entity';
 import { MessagesModule } from './messages/messages.module';
+import { Pago } from './pagos/entities/pago.entity';
+import { Procesamiento } from './pagos/entities/procesamiento.entity';
+import { PagosModule } from './pagos/pagos.module';
 import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
 
 @Module({
@@ -21,9 +24,11 @@ import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
         username: configService.get<string>('DB_USERNAME', 'nest'),
         password: configService.get<string>('DB_PASSWORD', 'nest'),
         database: configService.get<string>('DB_DATABASE', 'api_nest'),
-        entities: [Client],
+        entities: [Client, Pago, Procesamiento],
         synchronize: false,
         migrationsRun: true,
+        retryAttempts: 20,
+        retryDelay: 3000,
         migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
         extra: {
           allowPublicKeyRetrieval: true,
@@ -33,6 +38,7 @@ import { RabbitmqModule } from './rabbitmq/rabbitmq.module';
     RabbitmqModule,
     ClientsModule,
     MessagesModule,
+    PagosModule,
   ],
 })
 export class AppModule {}

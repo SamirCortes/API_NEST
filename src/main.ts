@@ -73,6 +73,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addTag('clients')
     .addTag('messages')
+    .addTag('pagos')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

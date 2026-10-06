@@ -1,0 +1,150 @@
+{
+  "info": {
+    "_postman_id": "c8f2d3b5-1a40-4e7b-9d22-pagos-taller03",
+    "name": "Pagos RabbitMQ",
+    "description": "Registro asincrono de pagos. POST /pagos guarda el pago en REGISTRADO y GET /pagos/:id muestra el estado.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3020"
+    },
+    {
+      "key": "pagoId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Registrar pago válido",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Pago registrado con status booleano', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql(true);",
+              "  pm.expect(json.message).to.eql('Pago registrado');",
+              "  pm.expect(json.data.estado).to.eql('REGISTRADO');",
+              "  pm.collectionVariables.set('pagoId', json.data.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"referencia\": \"PAG-0001\",\n  \"valor\": 125000,\n  \"medio\": \"transferencia\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/pagos",
+          "host": ["{{baseUrl}}"],
+          "path": ["pagos"]
+        },
+        "description": "Registra el pago y guarda el id. La respuesta no espera al procesamiento."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Registrar pago inválido",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 400', function () {",
+              "  pm.response.to.have.status(400);",
+              "});",
+              "",
+              "pm.test('Datos invalidos con status booleano', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql(false);",
+              "  pm.expect(json.message).to.eql('Datos del pago inválidos');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"referencia\": \"\",\n  \"valor\": -10,\n  \"medio\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/pagos",
+          "host": ["{{baseUrl}}"],
+          "path": ["pagos"]
+        },
+        "description": "No inserta el pago ni publica en la cola."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Consultar pago por id",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Trae el estado del pago', function () {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.status).to.eql(true);",
+              "  pm.expect(json.data).to.have.property('estado');",
+              "  pm.expect(json.data.id).to.eql(Number(pm.collectionVariables.get('pagoId')));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/pagos/{{pagoId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["pagos", "{{pagoId}}"]
+        },
+        "description": "Ejecútala justo después de registrar (REGISTRADO) y otra vez pasados unos diez segundos (PROCESADO)."
+      },
+      "response": []
+    }
+  ]
+}

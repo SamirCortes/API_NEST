@@ -8,4 +8,5 @@ export const RABBITMQ_EVENTS = {
   CLIENT_UPDATED: 'client.updated',
   CLIENT_DELETED: 'client.deleted',
   MESSAGE_PUBLISHED: 'message.published',
+  PAYMENT_REGISTERED: 'payment.registered',
 } as const;

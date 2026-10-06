@@ -67,10 +67,18 @@ services:
     container_name: api_nest_consumer
     restart: unless-stopped
     environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: nest
+      DB_PASSWORD: nest
+      DB_DATABASE: api_nest
       RABBITMQ_URL: amqp://nest:nest@rabbitmq:5672
       RABBITMQ_QUEUE: messages_queue
+      PROCESS_DELAY_MS: 15000
     command: ['node', 'dist/consumer.js']
     depends_on:
+      mysql:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       api:

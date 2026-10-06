@@ -15,11 +15,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    if (this.isMessagesRoute(request) && this.isInvalidJson(exception)) {
-      response
-        .status(HttpStatus.BAD_REQUEST)
-        .json(ApiResponseDto.fail('Formato de mensaje inválido'));
-      return;
+    if (this.isInvalidJson(exception)) {
+      const path = this.pathOf(request);
+      if (path === '/messages') {
+        response
+          .status(HttpStatus.BAD_REQUEST)
+          .json(ApiResponseDto.fail('Formato de mensaje inválido'));
+        return;
+      }
+      if (request.method === 'POST' && path === '/pagos') {
+        response
+          .status(HttpStatus.BAD_REQUEST)
+          .json(ApiResponseDto.fail('Datos del pago inválidos'));
+        return;
+      }
     }
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
@@ -49,11 +58,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(statusCode).json(ApiResponseDto.fail(message));
   }
 
-  private isMessagesRoute(request: Request) {
-    const path = (request.originalUrl ?? request.url ?? '')
+  private pathOf(request: Request) {
+    return (request.originalUrl ?? request.url ?? '')
       .split('?')[0]
       .replace(/\/+$/, '');
-    return path === '/messages';
   }
 
   private isInvalidJson(exception: unknown) {
