@@ -1,6 +1,6 @@
 # API NestJS + MySQL + RabbitMQ
 
-API REST de clientes y productor de mensajes. MySQL, RabbitMQ, la API y el consumidor corren en Docker. En el equipo solo hace falta Docker.
+API REST de clientes y productor de mensajes. MySQL, RabbitMQ, la API, el consumidor y SigNoz (APM) corren en Docker. En el equipo solo hace falta Docker.
 
 ## Levantar el entorno
 
@@ -12,7 +12,7 @@ cd API_NEST
 docker compose up -d --build
 ```
 
-Ese comando construye la imagen y levanta cuatro contenedores: MySQL (laboratorio anterior), RabbitMQ, la API productora y el consumidor. La cola `messages_queue` es durable y se declara sola al conectar; no hay que crearla en la consola.
+Ese comando construye la imagen y levanta la API, el consumidor, MySQL, RabbitMQ y SigNoz. La primera vez SigNoz descarga sus imágenes y puede tardar varios minutos. La cola `messages_queue` es durable y se declara sola al conectar; no hay que crearla en la consola.
 
 | Recurso | URL |
 |---------|-----|
@@ -23,6 +23,7 @@ La API escucha en el puerto **3020** del equipo. Dentro del contenedor el proces
 | MySQL (host) | `localhost:3307` |
 | RabbitMQ AMQP | `localhost:5672` |
 | RabbitMQ Management | http://localhost:15672 (user: `nest` / pass: `nest`) |
+| SigNoz | http://localhost:8088 |
 
 Dentro de la red de Docker los servicios se llaman `mysql` y `rabbitmq`, no `localhost`.
 
@@ -30,6 +31,32 @@ Dentro de la red de Docker los servicios se llaman `mysql` y `rabbitmq`, no `loc
 docker compose logs -f consumer
 docker compose logs -f api
 docker compose down
+```
+
+## Monitoreo con SigNoz
+
+La API y el consumidor arrancan con OpenTelemetry y envían trazas y métricas al colector `otel-collector` (puerto 4318 dentro de Docker). La interfaz queda en http://localhost:8088. El puerto 8080 del equipo ya lo usa otro contenedor, por eso SigNoz se publica en el **8088**.
+
+La primera vez que abras http://localhost:8088, SigNoz pide crear el usuario administrador. Después, en Services aparece `api-nest`. Una traza de `GET /clients` muestra el tiempo de la petición y, dentro, el `SELECT` contra MySQL.
+
+Los criterios de saturación del taller 4 están escritos en `docs/criterios_saturacion.md` y se fijaron antes de medir.
+
+## Prueba de estrés
+
+El generador es k6, en el contenedor del perfil `stress`. No arranca con `docker compose up`. El escenario versionado está en `k6/clientes.js`.
+
+| Operación | Proporción |
+|-----------|------------|
+| `GET /clients` | 70 % |
+| `POST /clients` | 20 % |
+| `PUT /clients/:id` | 10 % |
+
+Cada alta y cada actualización manda nombres, apellidos y edad distintos. El escalón 0 dura 1 minuto con 10 usuarios y se descarta. Después hay seis escalones de 3 minutos: 10, 25, 50, 100, 200 y 400 usuarios concurrentes. Dentro de Docker la prueba habla con `http://api:3000`.
+
+La corrida dura unos 20 minutos. No se ha ejecutado todavía.
+
+```bash
+docker compose --profile stress run --rm k6
 ```
 
 ## Productor
@@ -123,7 +150,9 @@ Si faltan datos, el valor no es un número mayor que cero, o el cuerpo no es JSO
 
 `GET /pagos/:id` consulta el mismo pago. Justo después del registro el estado es `REGISTRADO`. Unos segundos después pasa a `PROCESADO`.
 
-El consumidor espera `PROCESS_DELAY_MS` (4 segundos por defecto, entre 3 y 5), escribe un comprobante en `procesamientos` y solo entonces confirma el mensaje. En el log quedan el id, la hora en que lo tomó y la hora en que terminó.
+El consumidor espera `PROCESS_DELAY_MS`, escribe un comprobante en `procesamientos` y solo entonces confirma el mensaje. En el log quedan el id, la hora en que lo tomó y la hora en que terminó.
+
+En el caso 1 ese valor era `4000` (4 segundos). Para el caso 2 quedó en `15000` dentro de `docker-compose.yml`: el pago 16 se registró al instante y el log terminó unos 15 segundos después. Para volver a la pausa corta, pon `4000` y ejecuta `docker compose up -d consumer`.
 
 ```bash
 docker compose logs -f consumer
@@ -136,6 +165,8 @@ docker compose logs -f consumer
 3. Fallo al procesar. Registra un pago con referencia `PAG-FALLA`. El consumidor lo toma, falla antes de actualizar la base y devuelve el mensaje a la cola. El pago sigue en `REGISTRADO`. Para la captura, detén el consumidor y mira la cola y la tabla. Ese mensaje se reintenta mientras el consumidor siga encendido; al terminar la evidencia, bórralo desde la consola de RabbitMQ o deja el consumidor detenido.
 
 La colección está en `postman/Pagos_RabbitMQ.postman_collection.json`.
+
+Las capturas de los tres casos están en `postman/` y en el manual `docs/Manual_Entrega_API_Nest.pdf`.
 
 ## Colección Postman
 

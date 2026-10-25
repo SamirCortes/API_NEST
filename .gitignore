@@ -49,3 +49,6 @@ tmp
 
 # delivery package
 API_Nest_Entrega_Laboratorio.zip
+
+# Binario que el contenedor de SigNoz descarga al arrancar ClickHouse
+signoz/common/clickhouse/user_scripts/histogramQuantile

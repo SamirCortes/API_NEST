@@ -1,4 +1,6 @@
 node_modules
+signoz
+k6
 dist
 coverage
 .git

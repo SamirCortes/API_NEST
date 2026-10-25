@@ -25,6 +25,51 @@ CLIENT_SHOTS = [
     ("6. Listado posterior a eliminar (GET /clients)", "image list client delete.png"),
 ]
 
+PAGOS_SHOTS = [
+    (
+        "Caso 1, antes. Cola messages_queue vacía, con el consumidor detenido.",
+        "pagos cola vacia.png",
+    ),
+    (
+        "Caso 1, antes. Cinco pagos en Ready, 0 consumidores y mensajes persistentes.",
+        "pagos 5 pagos registrados.png",
+    ),
+    (
+        "Caso 1, antes. Los pagos 3 a 7 están en REGISTRADO. "
+        "El pago 2 (PAG-FALLA) también sigue en REGISTRADO.",
+        "pagos 5 registros en BD.png",
+    ),
+    (
+        "Caso 1, después. El log muestra los pagos 3 a 7 tomados y finalizados. "
+        "Arriba también se ve el fallo del pago 2, que volvió a la cola.",
+        "pagos procesados consola.png",
+    ),
+    (
+        "Caso 1, después. La cola queda en 0 y hay 1 consumidor activo.",
+        "pagos pagos procesados rabbitMQ.png",
+    ),
+    (
+        "Caso 2. PROCESS_DELAY_MS quedó en 15000.",
+        "pagos cambio a 15 segundos.png",
+    ),
+    (
+        "Caso 2. POST /pagos del pago 16 responde de inmediato con estado REGISTRADO.",
+        "pago registrado delay .png",
+    ),
+    (
+        "Caso 2. Mientras el consumidor espera, el pago 16 sigue en REGISTRADO.",
+        "pago regsitrado delay BD.png",
+    ),
+    (
+        "Caso 2. Log del pago 16: tomado a las 23:12:21.705Z y finalizado a las 23:12:36.759Z (15 segundos).",
+        "pago procesado delay consola.png",
+    ),
+    (
+        "Caso 2. Tabla de pagos después de registrar el pago 16.",
+        "pago procesado delay.png",
+    ),
+]
+
 RABBIT_SHOTS = [
     (
         "Mensaje válido. POST /messages responde status true y Mensaje encolado.",
@@ -153,7 +198,9 @@ def build():
     )
     pdf.bullet("Código fuente: carpeta API_NEST/")
     pdf.bullet("Imagen y composición: Dockerfile y docker-compose.yml")
-    pdf.bullet("Script SQL: sql/01_create_database_and_clients.sql")
+    pdf.bullet("Script SQL de clientes: sql/01_create_database_and_clients.sql")
+    pdf.bullet("Script SQL de pagos: sql/02_create_pagos_and_procesamientos.sql")
+    pdf.bullet("Postman de pagos: postman/Pagos_RabbitMQ.postman_collection.json")
     pdf.bullet("Postman de clientes: postman/API_Nest_Clients.postman_collection.json")
     pdf.bullet("Postman de mensajería: postman/Mensajeria_RabbitMQ.postman_collection.json")
     pdf.bullet("Capturas: postman/*.png y postman/*.jpeg")
@@ -246,7 +293,44 @@ def build():
         "La respuesta lleva status en false y el contador de la cola no aumenta."
     )
 
-    pdf.section("7. Colecciones de Postman")
+    pdf.section("7. Registro de pagos")
+    pdf.body(
+        "POST /pagos valida los datos, inserta el pago con estado REGISTRADO, "
+        "publica solo su id en messages_queue y responde enseguida. "
+        "GET /pagos/:id consulta ese pago. El consumidor espera PROCESS_DELAY_MS, "
+        "pasa el estado a PROCESADO, guarda un comprobante en procesamientos "
+        "y solo entonces confirma el mensaje."
+    )
+    pdf.code(
+        "POST http://localhost:3020/pagos\n"
+        '{"referencia": "PAG-0001", "valor": 125000, "medio": "transferencia"}\n\n'
+        '{"status": true, "message": "Pago registrado", '
+        '"data": {"id": 1, "estado": "REGISTRADO"}}'
+    )
+    pdf.bold_line("Datos inválidos, sin insertar ni publicar:")
+    pdf.code('{"status": false, "message": "Datos del pago inválidos"}')
+    pdf.body(
+        "En el caso 1 el retardo era de 4 segundos. En el log, el pago 3 se tomó "
+        "a las 23:03:41.564Z y terminó a las 23:03:45.598Z. El pago 7 terminó "
+        "a las 23:04:01.677Z. La API ya había respondido REGISTRADO antes de eso."
+    )
+    pdf.body(
+        "En el caso 2, PROCESS_DELAY_MS pasó a 15000. El pago 16 se registró "
+        "a las 23:12:21.692Z y la API respondió REGISTRADO en esa misma petición. "
+        "El consumidor lo tomó a las 23:12:21.705Z y lo finalizó a las 23:12:36.759Z, "
+        "unos 15 segundos después. El tiempo de respuesta de la API no siguió esa espera."
+    )
+    pdf.body(
+        "En el caso 3, la referencia PAG-FALLA hace fallar el procesamiento. "
+        "El pago 2 permanece en REGISTRADO, no tiene fila en procesamientos "
+        "y el log dice que el mensaje vuelve a la cola."
+    )
+    pdf.code(
+        "docker compose logs -f consumer\n"
+        "# Caso 2: PROCESS_DELAY_MS=15000 y docker compose up -d consumer"
+    )
+
+    pdf.section("8. Colecciones de Postman")
     pdf.bold_line("Mensajería")
     pdf.code("postman/Mensajeria_RabbitMQ.postman_collection.json")
     pdf.body(
@@ -255,21 +339,29 @@ def build():
         "Para diez mensajes válidos, usar el Collection Runner solo con la petición 1 "
         "y 10 iteraciones."
     )
+    pdf.bold_line("Pagos")
+    pdf.code("postman/Pagos_RabbitMQ.postman_collection.json")
+    pdf.body(
+        "Tiene tres peticiones: pago válido, pago inválido y consulta por id. "
+        "baseUrl es http://localhost:3020. La consulta hay que ejecutarla "
+        "al registrar y otra vez unos diez segundos después."
+    )
     pdf.bold_line("Clientes")
     pdf.code("postman/API_Nest_Clients.postman_collection.json")
     pdf.body("Ejecutar las peticiones del CRUD en orden. baseUrl también apunta al puerto 3020.")
 
-    pdf.section("8. API de clientes")
+    pdf.section("9. API de clientes")
     pdf.bullet("POST /clients crea un cliente y publica client.created")
     pdf.bullet("GET /clients y GET /clients/:id solo consultan")
     pdf.bullet("PUT /clients/:id actualiza y publica client.updated")
     pdf.bullet("DELETE /clients/:id elimina y publica client.deleted")
     pdf.body(
         "La tabla clients se crea con la migración al arrancar la API, o con "
-        "sql/01_create_database_and_clients.sql."
+        "sql/01_create_database_and_clients.sql. Las tablas pagos y procesamientos "
+        "están en sql/02_create_pagos_and_procesamientos.sql."
     )
 
-    pdf.section("9. Declaración de uso de herramientas de inteligencia artificial")
+    pdf.section("10. Declaración de uso de herramientas de inteligencia artificial")
     pdf.body(
         "Se utilizó Cursor, con el modelo Grok, como asistencia durante el laboratorio."
     )
@@ -277,19 +369,20 @@ def build():
     pdf.bullet("Comparar el taller de RabbitMQ con la API de clientes ya existente")
     pdf.bullet("Separar el productor y el consumidor en contenedores distintos")
     pdf.bullet("Publicar mensajes persistentes en la cola durable messages_queue")
-    pdf.bullet("Ajustar POST /messages al formato de respuesta pedido por el taller")
-    pdf.bullet("Actualizar Docker Compose, el README, Swagger y la colección de Postman")
+    pdf.bullet("Ajustar POST /messages y POST /pagos al formato de respuesta pedido")
+    pdf.bullet("Agregar las tablas pagos y procesamientos y el procesamiento asíncrono")
+    pdf.bullet("Actualizar Docker Compose, el README, Swagger y las colecciones de Postman")
     pdf.bullet("Generar este manual y el paquete ZIP de entrega")
     pdf.bold_line("Qué se revisó o hizo sobre ese resultado:")
-    pdf.bullet("Pruebas manuales en Swagger y Postman, incluidas las capturas")
-    pdf.bullet("Comprobación de los tres casos: consumidor detenido, reinicio y mensaje inválido")
+    pdf.bullet("Pruebas manuales en Swagger, Postman, DBeaver y la consola de RabbitMQ")
+    pdf.bullet("Capturas de los casos del taller 3: consumidor detenido, pausa de 15 segundos y fallo PAG-FALLA")
     pdf.bullet("El puerto publicado de la API quedó en 3020 porque el 3000 estaba ocupado")
     pdf.body(
         "El estudiante asume la responsabilidad del código entregado, "
         "de su funcionamiento y de la comprensión de la solución."
     )
 
-    pdf.section("10. Evidencias del CRUD de clientes")
+    pdf.section("11. Evidencias del CRUD de clientes")
     pdf.body("Capturas de Postman de las peticiones del laboratorio anterior.")
     for title, filename in CLIENT_SHOTS:
         image = POSTMAN / filename
@@ -297,7 +390,7 @@ def build():
             pdf.screenshot(title, image)
 
     pdf.add_page()
-    pdf.section("11. Evidencias de RabbitMQ")
+    pdf.section("12. Evidencias de RabbitMQ")
     pdf.body(
         "Capturas del productor y de la consola de administración. "
         "La cola es messages_queue."
@@ -306,6 +399,19 @@ def build():
         image = POSTMAN / filename
         if image.exists():
             pdf.screenshot(title, image)
+
+    pdf.add_page()
+    pdf.section("13. Evidencias del taller de pagos")
+    pdf.body(
+        "Capturas de la cola, de la tabla pagos y del registro del consumidor "
+        "para los casos del taller 3."
+    )
+    for title, filename in PAGOS_SHOTS:
+        image = POSTMAN / filename
+        if image.exists():
+            pdf.screenshot(title, image)
+        else:
+            pdf.body(f"Falta la captura: {filename}")
 
     pdf.output(str(OUT))
     print(f"PDF generado: {OUT}")

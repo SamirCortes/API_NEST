@@ -18,6 +18,11 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -37,6 +42,11 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   api:
     build:
@@ -56,11 +66,26 @@ services:
       DB_DATABASE: api_nest
       RABBITMQ_URL: amqp://nest:nest@rabbitmq:5672
       RABBITMQ_QUEUE: messages_queue
+      OTEL_SERVICE_NAME: api-nest
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_NODE_RESOURCE_DETECTORS: env,host,os
+      OTEL_NODE_DISABLED_INSTRUMENTATIONS: fs,dns,net,grpc
+      OTEL_LOGS_EXPORTER: none
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
     depends_on:
       mysql:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
 
   consumer:
     image: api_nest:local
@@ -75,7 +100,26 @@ services:
       RABBITMQ_URL: amqp://nest:nest@rabbitmq:5672
       RABBITMQ_QUEUE: messages_queue
       PROCESS_DELAY_MS: 15000
-    command: ['node', 'dist/consumer.js']
+      OTEL_SERVICE_NAME: api-nest-consumer
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_NODE_RESOURCE_DETECTORS: env,host,os
+      OTEL_NODE_DISABLED_INSTRUMENTATIONS: fs,dns,net,grpc
+      OTEL_LOGS_EXPORTER: none
+    command:
+      [
+        'node',
+        '--require',
+        '@opentelemetry/auto-instrumentations-node/register',
+        'dist/consumer.js',
+      ]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
     depends_on:
       mysql:
         condition: service_healthy
@@ -83,7 +127,197 @@ services:
         condition: service_healthy
       api:
         condition: service_started
+      otel-collector:
+        condition: service_started
+
+  init-clickhouse:
+    image: clickhouse/clickhouse-server:25.5.6
+    container_name: api_nest_signoz_init_clickhouse
+    restart: on-failure
+    command:
+      - bash
+      - -c
+      - |
+        version="v0.0.1"
+        node_os=$$(uname -s | tr '[:upper:]' '[:lower:]')
+        node_arch=$$(uname -m | sed s/aarch64/arm64/ | sed s/x86_64/amd64/)
+        echo "Fetching histogram-binary for $${node_os}/$${node_arch}"
+        cd /tmp
+        wget -O histogram-quantile.tar.gz "https://github.com/SigNoz/signoz/releases/download/histogram-quantile%2F$${version}/histogram-quantile_$${node_os}_$${node_arch}.tar.gz"
+        tar -xvzf histogram-quantile.tar.gz
+        mv histogram-quantile /var/lib/clickhouse/user_scripts/histogramQuantile
+        chmod +x /var/lib/clickhouse/user_scripts/histogramQuantile
+    volumes:
+      - ./signoz/common/clickhouse/user_scripts:/var/lib/clickhouse/user_scripts
+
+  zookeeper-1:
+    image: signoz/zookeeper:3.7.1
+    container_name: api_nest_signoz_zookeeper
+    user: root
+    restart: unless-stopped
+    environment:
+      ZOO_SERVER_ID: 1
+      ALLOW_ANONYMOUS_LOGIN: 'yes'
+      ZOO_AUTOPURGE_INTERVAL: 1
+      ZOO_ENABLE_PROMETHEUS_METRICS: 'yes'
+      ZOO_PROMETHEUS_METRICS_PORT_NUMBER: 9141
+    volumes:
+      - signoz_zookeeper:/bitnami/zookeeper
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -s -m 2 http://localhost:8080/commands/ruok | grep error | grep null',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.5.6
+    container_name: api_nest_signoz_clickhouse
+    tty: true
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: 1
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./signoz/common/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+      - ./signoz/common/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+      - ./signoz/common/clickhouse/custom-function.xml:/etc/clickhouse-server/custom-function.xml
+      - ./signoz/common/clickhouse/user_scripts:/var/lib/clickhouse/user_scripts
+      - ./signoz/common/clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml
+      - signoz_clickhouse:/var/lib/clickhouse
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8123/ping']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+    depends_on:
+      init-clickhouse:
+        condition: service_completed_successfully
+      zookeeper-1:
+        condition: service_healthy
+
+  schema-migrator-sync:
+    image: signoz/signoz-schema-migrator:v0.129.13
+    container_name: api_nest_signoz_migrator_sync
+    restart: on-failure
+    command: ['sync', '--dsn=tcp://clickhouse:9000', '--up=']
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  schema-migrator-async:
+    image: signoz/signoz-schema-migrator:v0.129.13
+    container_name: api_nest_signoz_migrator_async
+    restart: on-failure
+    command: ['async', '--dsn=tcp://clickhouse:9000', '--up=']
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      schema-migrator-sync:
+        condition: service_completed_successfully
+
+  signoz:
+    image: signoz/signoz:v0.109.0
+    container_name: api_nest_signoz
+    restart: unless-stopped
+    command: ['--config=/root/config/prometheus.yml']
+    ports:
+      - '8088:8080'
+    environment:
+      SIGNOZ_ALERTMANAGER_PROVIDER: signoz
+      SIGNOZ_TELEMETRYSTORE_CLICKHOUSE_DSN: tcp://clickhouse:9000
+      SIGNOZ_SQLSTORE_SQLITE_PATH: /var/lib/signoz/signoz.db
+      SIGNOZ_TOKENIZER_JWT_SECRET: api-nest-signoz-lab-2026
+      DASHBOARDS_PATH: /root/config/dashboards
+      STORAGE: clickhouse
+      GODEBUG: netdns=go
+      TELEMETRY_ENABLED: 'false'
+      DEPLOYMENT_TYPE: docker-standalone
+      DOT_METRICS_ENABLED: 'true'
+    volumes:
+      - ./signoz/common/signoz/prometheus.yml:/root/config/prometheus.yml
+      - ./signoz/common/dashboards:/root/config/dashboards
+      - signoz_sqlite:/var/lib/signoz
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:8080/api/v1/health']
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      schema-migrator-sync:
+        condition: service_completed_successfully
+
+  otel-collector:
+    image: signoz/signoz-otel-collector:v0.129.13
+    container_name: api_nest_signoz_collector
+    restart: unless-stopped
+    command:
+      - --config=/etc/otel-collector-config.yaml
+      - --feature-gates=-pkg.translator.prometheus.NormalizeName
+    environment:
+      OTEL_RESOURCE_ATTRIBUTES: host.name=signoz-host,os.type=linux
+      LOW_CARDINAL_EXCEPTION_GROUPING: 'false'
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+    volumes:
+      - ./signoz/docker/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    depends_on:
+      signoz:
+        condition: service_healthy
+
+  k6:
+    image: grafana/k6:0.57.0
+    profiles: ['stress']
+    environment:
+      BASE_URL: http://api:3000
+    volumes:
+      - ./k6:/scripts:ro
+    command: ['run', '/scripts/clientes.js']
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   mysql_data:
   rabbitmq_data:
+  signoz_clickhouse:
+  signoz_sqlite:
+  signoz_zookeeper:
