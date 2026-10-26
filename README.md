@@ -53,7 +53,7 @@ El generador es k6, en el contenedor del perfil `stress`. No arranca con `docker
 
 Cada alta y cada actualización manda nombres, apellidos y edad distintos. El escalón 0 dura 1 minuto con 10 usuarios y se descarta. Después hay seis escalones de 3 minutos: 10, 25, 50, 100, 200 y 400 usuarios concurrentes. Dentro de Docker la prueba habla con `http://api:3000`.
 
-La corrida dura unos 20 minutos. No se ha ejecutado todavía.
+La corrida dura unos 20 minutos. La medición del 26 de octubre de 2026 está en `docs/Informe_Taller_04_APM.pdf`.
 
 ```bash
 docker compose --profile stress run --rm k6

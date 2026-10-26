@@ -205,6 +205,10 @@ def build():
     pdf.bullet("Postman de mensajería: postman/Mensajeria_RabbitMQ.postman_collection.json")
     pdf.bullet("Capturas: postman/*.png y postman/*.jpeg")
     pdf.bullet("Este manual: Manual_Entrega_API_Nest.pdf")
+    pdf.bullet(
+        "Informe del taller 4 (APM y estrés): Informe_Taller_04_APM.pdf "
+        "y docs/Informe_Taller_04_APM.pdf"
+    )
 
     pdf.section("2. Repositorio")
     pdf.body("El código también está publicado en:")
@@ -373,6 +377,12 @@ def build():
     pdf.bullet("Agregar las tablas pagos y procesamientos y el procesamiento asíncrono")
     pdf.bullet("Actualizar Docker Compose, el README, Swagger y las colecciones de Postman")
     pdf.bullet("Generar este manual y el paquete ZIP de entrega")
+    pdf.bullet(
+        "Instrumentar la API con OpenTelemetry, desplegar SigNoz y escribir el escenario k6 del taller 4"
+    )
+    pdf.bullet(
+        "Tomar las capturas de SigNoz y redactar el informe con la tabla, las gráficas y el análisis de la corrida del 26 de octubre de 2026"
+    )
     pdf.bold_line("Qué se revisó o hizo sobre ese resultado:")
     pdf.bullet("Pruebas manuales en Swagger, Postman, DBeaver y la consola de RabbitMQ")
     pdf.bullet("Capturas de los casos del taller 3: consumidor detenido, pausa de 15 segundos y fallo PAG-FALLA")
