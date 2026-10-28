@@ -1,0 +1,22 @@
+name: Construir y desplegar
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Bajar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Construir la imagen
+        run: docker build -t api-nest:${{ github.sha }} .
+
+      - name: Publicar la imagen
+        run: echo "Publicar en el registro del proveedor con las credenciales del entorno"
+
+      - name: Desplegar
+        run: echo "Actualizar las dos instancias del backend con la imagen publicada"
